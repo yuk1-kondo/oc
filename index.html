@@ -89,7 +89,7 @@
   // ---------- WebGL2 setup ----------
   const gl = canvas.getContext('webgl2', { premultipliedAlpha:false, antialias:false });
   if (!gl) {
-    alert('WebGL2 が使えません（Safari旧版など）。');
+    alert('WebGL2 is not supported in this browser.');
     return;
   }
 
@@ -98,7 +98,9 @@
   in vec2 a_pos;
   out vec2 v_uv;
   void main() {
-    v_uv = (a_pos + 1.0) * 0.5;
+    // Flip Y and mirror X for correct camera orientation
+    vec2 uv = (a_pos + 1.0) * 0.5;
+    v_uv = vec2(1.0 - uv.x, 1.0 - uv.y);
     gl_Position = vec4(a_pos, 0.0, 1.0);
   }`;
 
@@ -290,7 +292,7 @@
     locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`
   });
   selfieSeg.setOptions({
-    modelSelection: 1, // 0: general, 1: landscape (環境向けで安定しやすいことが多い)
+    modelSelection: 1, // 0: general, 1: landscape (better for environment)
   });
   selfieSeg.onResults((results) => {
     // results.segmentationMask is an HTMLCanvasElement-like
@@ -392,7 +394,7 @@
     gl.activeTexture(gl.TEXTURE0);
     uploadToTex(TEX.now, grab);
 
-    // delays: 6, 12, 18 frames (30fpsなら約200/400/600ms)
+    // delays: 6, 12, 18 frames (~200/400/600ms at 30fps)
     gl.activeTexture(gl.TEXTURE1);
     uploadToTex(TEX.p1, getPastCanvas(6));
 
@@ -404,7 +406,7 @@
 
     gl.activeTexture(gl.TEXTURE4);
     if (segReady) uploadToTex(TEX.mask, segmentationMaskCanvas);
-    else uploadToTex(TEX.mask, grab); // fallback (意味は薄いがクラッシュ回避)
+    else uploadToTex(TEX.mask, grab); // fallback to prevent crash
 
     gl.activeTexture(gl.TEXTURE5);
     uploadToTex(TEX.freeze, freezeCanvas);
@@ -423,7 +425,7 @@
 
   btnStart.addEventListener('click', () => start().catch(err => {
     console.error(err);
-    alert('開始に失敗: ' + err.message);
+    alert('Failed to start: ' + err.message);
   }));
 
   btnFreeze.addEventListener('click', () => {
