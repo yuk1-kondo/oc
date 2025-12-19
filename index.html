@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Optical Camouflage (Web + MediaPipe)</title>
+  <title>Optical Camouflage</title>
   <style>
     html, body { margin:0; padding:0; background:#111; color:#eee; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     .wrap { display:grid; grid-template-rows:auto 1fr; height:100vh; }
@@ -32,29 +32,29 @@
 <body>
   <div class="wrap">
     <div class="bar">
-      <button id="btnStart">開始</button>
-      <button id="btnFreeze" disabled>背景フリーズ</button>
-      <button id="btnUnfreeze" disabled>フリーズ解除</button>
+      <button id="btnStart">Start</button>
+      <button id="btnFreeze" disabled>Freeze BG</button>
+      <button id="btnUnfreeze" disabled>Unfreeze</button>
 
       <label>
-        レイヤー強度
+        Cloak
         <input id="mix" type="range" min="0" max="1" step="0.01" value="0.85" />
         <small id="mixVal">0.85</small>
       </label>
 
       <label>
-        エッジ（ぼかし）
+        Edge Blur
         <input id="edge" type="range" min="0" max="10" step="0.1" value="3.0" />
         <small id="edgeVal">3.0</small>
       </label>
 
       <label>
-        ひずみ
+        Warp
         <input id="warp" type="range" min="0" max="12" step="0.1" value="4.0" />
         <small id="warpVal">4.0</small>
       </label>
 
-      <small>※ HTTPS / localhost で実行</small>
+      <small>HTTPS required</small>
     </div>
 
     <div class="stage">
