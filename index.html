@@ -165,25 +165,30 @@
     vec2 o2 = vec2(-2.0,  1.2) * u_texel * (3.0 + u_warp);
     vec2 o3 = vec2( 2.2,  2.0) * u_texel * (4.0 + u_warp);
 
-    // choose base background source
-    vec3 baseBg = now;
+    // choose background source
+    vec3 cloak;
+    
     if (u_useFreeze > 0.5) {
-      baseBg = texture(u_freeze, v_uv).rgb;
+      // When frozen: use frozen background directly with subtle distortion
+      vec3 frozenBg = texture(u_freeze, v_uv).rgb;
+      vec3 frozenWarped1 = sampleWarped(u_freeze, v_uv + o1 * 0.3, 1.0, amp * 0.5);
+      vec3 frozenWarped2 = sampleWarped(u_freeze, v_uv + o2 * 0.3, 2.0, amp * 0.3);
+      
+      // Mostly frozen bg with slight shimmer effect
+      cloak = frozenBg * 0.85 + frozenWarped1 * 0.10 + frozenWarped2 * 0.05;
+    } else {
+      // No freeze: use past frames (less effective but still works)
+      vec3 p1 = sampleWarped(u_p1, v_uv + o1, 1.0, amp);
+      vec3 p2 = sampleWarped(u_p2, v_uv + o2, 2.0, amp * 1.2);
+      vec3 p3 = sampleWarped(u_p3, v_uv + o3, 3.0, amp * 1.4);
+      cloak = p1 * 0.5 + p2 * 0.3 + p3 * 0.2;
     }
 
-    // Past layers (like time-lag "shimmers")
-    vec3 p1 = sampleWarped(u_p1, v_uv + o1, 1.0, amp);
-    vec3 p2 = sampleWarped(u_p2, v_uv + o2, 2.0, amp * 1.2);
-    vec3 p3 = sampleWarped(u_p3, v_uv + o3, 3.0, amp * 1.4);
+    // subtle edge highlight (refraction effect at cloak boundary)
+    float edge = smoothstep(0.25, 0.50, m) - smoothstep(0.50, 0.75, m);
+    cloak += vec3(edge * 0.08);
 
-    // Layer weights (sum <= 1)
-    vec3 cloak = baseBg * 0.55 + p1 * 0.23 + p2 * 0.14 + p3 * 0.08;
-
-    // subtle edge highlight (optional: makes "refraction" feel)
-    float edge = smoothstep(0.30, 0.55, m) - smoothstep(0.55, 0.80, m);
-    cloak += edge * 0.06;
-
-    // apply only on person area
+    // apply cloak only on person area
     float k = clamp(u_mix, 0.0, 1.0);
     vec3 outRgb = mix(now, cloak, m * k);
 
