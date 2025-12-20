@@ -23,10 +23,24 @@
     canvas { width: min(100vw, 1100px); height:auto; border-radius:14px; box-shadow: 0 10px 35px rgba(0,0,0,.45); }
     video { display:none; }
     small { opacity:.75; }
+    .status { 
+      position: fixed; 
+      top: 70px; 
+      right: 20px; 
+      background: rgba(0,0,0,0.7); 
+      padding: 12px 18px; 
+      border-radius: 12px; 
+      font-size: 14px;
+      z-index: 100;
+    }
+    .status.active { background: rgba(0,180,100,0.7); }
+    .gesture-icon { font-size: 24px; margin-right: 8px; }
   </style>
 
   <!-- MediaPipe Selfie Segmentation (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"></script>
+  <!-- MediaPipe Hands (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 </head>
 
 <body>
@@ -55,6 +69,12 @@
       </label>
 
       <small>HTTPS required</small>
+      <button id="btnGesture" disabled>Enable Gesture</button>
+    </div>
+
+    <div id="status" class="status" style="display:none;">
+      <span class="gesture-icon">?</span>
+      <span id="statusText">Cloak OFF</span>
     </div>
 
     <div class="stage">
@@ -286,6 +306,103 @@
   const freezeCtx = freezeCanvas.getContext('2d', { willReadFrequently:false });
   let useFreeze = 0;
 
+  // ---------- Cloak state (gesture controlled) ----------
+  let cloakEnabled = false;
+  let gestureEnabled = false;
+  let lastGestureTime = 0;
+  const GESTURE_COOLDOWN = 1000; // 1 second cooldown to prevent flickering
+
+  const statusEl = document.getElementById('status');
+  const statusText = document.getElementById('statusText');
+  const btnGesture = document.getElementById('btnGesture');
+
+  function updateCloakStatus() {
+    if (cloakEnabled) {
+      statusEl.classList.add('active');
+      statusText.textContent = 'Cloak ON';
+      mixEl.value = 1.0;
+    } else {
+      statusEl.classList.remove('active');
+      statusText.textContent = 'Cloak OFF';
+      mixEl.value = 0;
+    }
+    syncUI();
+  }
+
+  // ---------- MediaPipe Hands (Gesture Detection) ----------
+  let hands = null;
+  let handResults = null;
+
+  function isClosedFist(landmarks) {
+    // Check if all fingers are closed (fist)
+    // Compare fingertip positions with knuckle positions
+    // Finger tips: 4(thumb), 8(index), 12(middle), 16(ring), 20(pinky)
+    // Finger PIPs: 3(thumb), 6(index), 10(middle), 14(ring), 18(pinky)
+    
+    const tipIds = [8, 12, 16, 20]; // Index to pinky tips
+    const pipIds = [6, 10, 14, 18]; // Index to pinky PIPs
+    
+    let closedFingers = 0;
+    
+    for (let i = 0; i < tipIds.length; i++) {
+      const tip = landmarks[tipIds[i]];
+      const pip = landmarks[pipIds[i]];
+      // Finger is closed if tip is below (greater Y) than PIP
+      if (tip.y > pip.y) {
+        closedFingers++;
+      }
+    }
+    
+    // Check thumb separately (compare x position for right hand)
+    const thumbTip = landmarks[4];
+    const thumbIp = landmarks[3];
+    const wrist = landmarks[0];
+    
+    // Determine if it's right or left hand based on thumb position relative to wrist
+    const isRightHand = thumbTip.x < wrist.x;
+    
+    let thumbClosed = false;
+    if (isRightHand) {
+      thumbClosed = thumbTip.x > thumbIp.x;
+    } else {
+      thumbClosed = thumbTip.x < thumbIp.x;
+    }
+    
+    // Fist = all 4 fingers closed + thumb closed
+    return closedFingers >= 3 && thumbClosed;
+  }
+
+  function initHands() {
+    hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+    
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0, // 0 = lite, faster
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.5
+    });
+    
+    hands.onResults((results) => {
+      handResults = results;
+      
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        const now = Date.now();
+        
+        if (isClosedFist(landmarks)) {
+          // Toggle cloak with cooldown
+          if (now - lastGestureTime > GESTURE_COOLDOWN) {
+            cloakEnabled = !cloakEnabled;
+            lastGestureTime = now;
+            updateCloakStatus();
+          }
+        }
+      }
+    });
+  }
+
   // ---------- MediaPipe Selfie Segmentation ----------
   let segmentationMaskCanvas = document.createElement('canvas'); // will be drawn by MediaPipe
   let segReady = false;
@@ -345,6 +462,7 @@
 
     btnFreeze.disabled = false;
     btnUnfreeze.disabled = false;
+    btnGesture.disabled = false;
 
     // warm up: fill ring with current
     for (let i=0; i<RING.size; i++) {
@@ -390,6 +508,12 @@
     //   - every frame is best quality, but heavy on low-end devices.
     //   - if you want lighter, do: if (frameCount % 2 === 0) await...
     await selfieSeg.send({ image: grab });
+    
+    // 3.5) run hand detection if gesture is enabled
+    if (gestureEnabled && hands && frameCount % 3 === 0) {
+      await hands.send({ image: grab });
+    }
+    
     frameCount++;
 
     // 4) upload textures
@@ -438,6 +562,23 @@
 
   btnUnfreeze.addEventListener('click', () => {
     useFreeze = 0;
+  });
+
+  btnGesture.addEventListener('click', () => {
+    if (!gestureEnabled) {
+      if (!hands) initHands();
+      gestureEnabled = true;
+      statusEl.style.display = 'block';
+      btnGesture.textContent = 'Disable Gesture';
+      updateCloakStatus();
+    } else {
+      gestureEnabled = false;
+      statusEl.style.display = 'none';
+      btnGesture.textContent = 'Enable Gesture';
+      cloakEnabled = false;
+      mixEl.value = 0.98;
+      syncUI();
+    }
   });
 
 })();
