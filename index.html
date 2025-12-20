@@ -38,8 +38,8 @@
 
       <label>
         Cloak
-        <input id="mix" type="range" min="0" max="1" step="0.01" value="0.85" />
-        <small id="mixVal">0.85</small>
+        <input id="mix" type="range" min="0" max="1" step="0.01" value="0.98" />
+        <small id="mixVal">0.98</small>
       </label>
 
       <label>
@@ -154,8 +154,10 @@
 
     // edge soften + slight dilate by boosting radius
     float m = blurMask(v_uv, max(0.0, u_edge));
-    // Make mask more binary-ish but still soft
-    m = smoothstep(0.35, 0.75, m);
+    // Make mask sharper for better invisibility
+    m = smoothstep(0.20, 0.55, m);
+    // Boost mask strength
+    m = pow(m, 0.7);
 
     // Multi-layer "cloak" from frozen bg + past frames
     // Layer offsets create "multi-stage" diagonal feel
@@ -169,13 +171,8 @@
     vec3 cloak;
     
     if (u_useFreeze > 0.5) {
-      // When frozen: use frozen background directly with subtle distortion
-      vec3 frozenBg = texture(u_freeze, v_uv).rgb;
-      vec3 frozenWarped1 = sampleWarped(u_freeze, v_uv + o1 * 0.3, 1.0, amp * 0.5);
-      vec3 frozenWarped2 = sampleWarped(u_freeze, v_uv + o2 * 0.3, 2.0, amp * 0.3);
-      
-      // Mostly frozen bg with slight shimmer effect
-      cloak = frozenBg * 0.85 + frozenWarped1 * 0.10 + frozenWarped2 * 0.05;
+      // When frozen: use frozen background directly (full replacement)
+      cloak = texture(u_freeze, v_uv).rgb;
     } else {
       // No freeze: use past frames (less effective but still works)
       vec3 p1 = sampleWarped(u_p1, v_uv + o1, 1.0, amp);
@@ -185,8 +182,8 @@
     }
 
     // subtle edge highlight (refraction effect at cloak boundary)
-    float edge = smoothstep(0.25, 0.50, m) - smoothstep(0.50, 0.75, m);
-    cloak += vec3(edge * 0.08);
+    float edge = smoothstep(0.20, 0.45, m) - smoothstep(0.55, 0.80, m);
+    cloak += vec3(edge * 0.05);
 
     // apply cloak only on person area
     float k = clamp(u_mix, 0.0, 1.0);
