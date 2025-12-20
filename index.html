@@ -35,6 +35,29 @@
     }
     .status.active { background: rgba(0,180,100,0.7); }
     .gesture-icon { font-size: 24px; margin-right: 8px; }
+    .countdown {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 120px;
+      font-weight: bold;
+      color: rgba(255,255,255,0.9);
+      text-shadow: 0 0 40px rgba(0,0,0,0.8);
+      z-index: 200;
+      pointer-events: none;
+    }
+    .auto-status {
+      position: fixed;
+      top: 120px;
+      right: 20px;
+      background: rgba(0,100,200,0.7);
+      padding: 10px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      z-index: 100;
+    }
+    .auto-status.ready { background: rgba(0,180,100,0.7); }
   </style>
 
   <!-- MediaPipe Selfie Segmentation (CDN) -->
@@ -47,6 +70,7 @@
   <div class="wrap">
     <div class="bar">
       <button id="btnStart">Start</button>
+      <button id="btnAutoStart">Auto Start</button>
       <button id="btnFreeze" disabled>Freeze BG</button>
       <button id="btnUnfreeze" disabled>Unfreeze</button>
 
@@ -77,6 +101,12 @@
       <span id="statusText">Cloak OFF</span>
     </div>
 
+    <div id="countdown" class="countdown" style="display:none;"></div>
+    
+    <div id="autoStatus" class="auto-status" style="display:none;">
+      <span id="autoStatusText">Waiting for clear frame...</span>
+    </div>
+
     <div class="stage">
       <video id="video" playsinline></video>
       <canvas id="gl"></canvas>
@@ -88,8 +118,12 @@
   const video = document.getElementById('video');
   const canvas = document.getElementById('gl');
   const btnStart = document.getElementById('btnStart');
+  const btnAutoStart = document.getElementById('btnAutoStart');
   const btnFreeze = document.getElementById('btnFreeze');
   const btnUnfreeze = document.getElementById('btnUnfreeze');
+  const countdownEl = document.getElementById('countdown');
+  const autoStatusEl = document.getElementById('autoStatus');
+  const autoStatusText = document.getElementById('autoStatusText');
 
   const mixEl = document.getElementById('mix');
   const edgeEl = document.getElementById('edge');
@@ -306,6 +340,58 @@
   const freezeCtx = freezeCanvas.getContext('2d', { willReadFrequently:false });
   let useFreeze = 0;
 
+  // ---------- Auto Freeze state ----------
+  let autoMode = false;
+  let autoFreezeReady = false;
+  let clearFrameCount = 0;
+  const CLEAR_FRAMES_NEEDED = 10; // Need 10 consecutive clear frames
+
+  function checkIfFrameClear() {
+    // Check if the segmentation mask shows no person (low mask values)
+    if (!segReady) return false;
+    
+    const ctx = segmentationMaskCanvas.getContext('2d');
+    const w = segmentationMaskCanvas.width;
+    const h = segmentationMaskCanvas.height;
+    
+    // Sample some points to check mask coverage
+    const sampleSize = 20;
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    
+    let personPixels = 0;
+    let totalSamples = 0;
+    
+    for (let y = 0; y < h; y += Math.floor(h / sampleSize)) {
+      for (let x = 0; x < w; x += Math.floor(w / sampleSize)) {
+        const idx = (y * w + x) * 4;
+        // Red channel contains mask value (higher = person)
+        if (data[idx] > 128) personPixels++;
+        totalSamples++;
+      }
+    }
+    
+    const personRatio = personPixels / totalSamples;
+    return personRatio < 0.05; // Less than 5% person coverage = clear
+  }
+
+  function doAutoFreeze() {
+    freezeCtx.drawImage(video, 0, 0, freezeCanvas.width, freezeCanvas.height);
+    useFreeze = 1;
+    autoFreezeReady = true;
+    autoStatusEl.classList.add('ready');
+    autoStatusText.textContent = 'Background captured! You can enter now.';
+    
+    // Auto enable gesture mode
+    if (!gestureEnabled) {
+      if (!hands) initHands();
+      gestureEnabled = true;
+      statusEl.style.display = 'block';
+      btnGesture.textContent = 'Disable Gesture';
+      updateCloakStatus();
+    }
+  }
+
   // ---------- Cloak state (gesture controlled) ----------
   let cloakEnabled = false;
   let gestureEnabled = false;
@@ -509,7 +595,22 @@
     //   - if you want lighter, do: if (frameCount % 2 === 0) await...
     await selfieSeg.send({ image: grab });
     
-    // 3.5) run hand detection if gesture is enabled
+    // 3.5) Auto freeze: check if frame is clear (no person)
+    if (autoMode && !autoFreezeReady) {
+      if (checkIfFrameClear()) {
+        clearFrameCount++;
+        autoStatusText.textContent = `Clear frame detected (${clearFrameCount}/${CLEAR_FRAMES_NEEDED})...`;
+        
+        if (clearFrameCount >= CLEAR_FRAMES_NEEDED) {
+          doAutoFreeze();
+        }
+      } else {
+        clearFrameCount = 0;
+        autoStatusText.textContent = 'Step out of frame to capture background...';
+      }
+    }
+    
+    // 3.6) run hand detection if gesture is enabled
     if (gestureEnabled && hands && frameCount % 3 === 0) {
       await hands.send({ image: grab });
     }
@@ -553,6 +654,29 @@
     console.error(err);
     alert('Failed to start: ' + err.message);
   }));
+
+  btnAutoStart.addEventListener('click', async () => {
+    // Show countdown
+    countdownEl.style.display = 'block';
+    
+    for (let i = 3; i >= 1; i--) {
+      countdownEl.textContent = i;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    countdownEl.textContent = 'GO!';
+    await new Promise(r => setTimeout(r, 500));
+    countdownEl.style.display = 'none';
+    
+    // Start camera
+    await start();
+    
+    // Enable auto mode
+    autoMode = true;
+    autoFreezeReady = false;
+    clearFrameCount = 0;
+    autoStatusEl.style.display = 'block';
+    autoStatusText.textContent = 'Step out of frame to capture background...';
+  });
 
   btnFreeze.addEventListener('click', () => {
     if (!running) return;
